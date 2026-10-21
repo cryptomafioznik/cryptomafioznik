@@ -8,6 +8,8 @@
 <link rel="canonical" href="https://hl-tax-export.pages.dev/">
 <meta property="og:title" content="Hyperliquid Tax Export for Koinly">
 <meta property="og:description" content="Perp trades, hourly funding and PnL from any Hyperliquid wallet into a Koinly CSV. Free preview, runs in your browser.">
+<meta property="og:image" content="https://hl-tax-export.pages.dev/og.png">
+<meta name="twitter:card" content="summary_large_image">
 <script type="application/ld+json">
 {"@context":"https://schema.org","@type":"SoftwareApplication","name":"Hyperliquid Tax Export","applicationCategory":"FinanceApplication","operatingSystem":"Web","offers":{"@type":"Offer","price":"39","priceCurrency":"USD"},"description":"Export Hyperliquid and Polymarket trades, funding and PnL into a Koinly CSV."}
 </script>
@@ -60,8 +62,14 @@ table{width:100%;border-collapse:collapse;font-size:14px}td,th{border-bottom:1px
 <div id="cap" hidden class="notice"><p><b>Free preview:</b> the files contain the first 300 rows of <span id="cap-count"></span>. The summary above is complete. A license for one tax year removes the cap for every export of that year.</p><p><a class="btn" id="buy" href="#">Get a license, $39 in USDC</a></p></div>
 </div>
 
-<h2>Summary</h2>
+<h2>Summary <button id="copy-summary" style="font-size:13px;padding:4px 8px;border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:6px;cursor:pointer">copy</button></h2>
 <pre id="summary" class="muted">Run an export to see realized PnL, fees and funding per asset.</pre>
+
+<div id="notify" class="card">
+<p style="margin-top:0"><b>Tax season starts in January.</b> Get one email when the 2026 export with the final funding rules and the Awaken template is ready.</p>
+<div class="row"><div><input id="notify-email" type="text" placeholder="you@example.com" autocomplete="email"></div><div><button id="notify-btn">Notify me</button></div></div>
+<p id="notify-msg" class="muted"></p>
+</div>
 
 <h2>What you get</h2>
 <table>

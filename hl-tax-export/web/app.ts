@@ -101,3 +101,23 @@ const thisYear = new Date().getUTCFullYear();
 for (let yy = thisYear; yy >= 2023; yy--) y.add(new Option(String(yy), String(yy), yy === thisYear - 0, yy === thisYear - 0));
 if (CHECKOUT_URL) ($("buy") as HTMLAnchorElement).href = `${CHECKOUT_URL}/buy/hl-tax-export-${thisYear}`;
 else $("buy").hidden = true;
+
+// "Notify me" form: stores the address through the checkout worker. Hidden when no checkout is configured.
+if (!CHECKOUT_URL) $("notify").hidden = true;
+$("notify-btn").addEventListener("click", async () => {
+  const email = $<HTMLInputElement>("notify-email").value.trim();
+  const out = $("notify-msg");
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return void (out.textContent = "Enter a valid email");
+  try {
+    const r = await fetch(`${CHECKOUT_URL}/api/subscribe`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email, source: "hl-tax-export" }) });
+    out.textContent = r.ok ? "Done. One email when the tax-season version ships, nothing else." : "Could not save, try again later";
+  } catch {
+    out.textContent = "Could not save, try again later";
+  }
+});
+
+$("copy-summary").addEventListener("click", () => {
+  const t = $("summary").textContent ?? "";
+  if (!t.includes("TOTAL")) return;
+  navigator.clipboard.writeText(t + "\n\nvia " + location.origin).then(() => ($("copy-summary").textContent = "copied"));
+});
