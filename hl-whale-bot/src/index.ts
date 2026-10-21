@@ -12,6 +12,65 @@ export interface Env extends TgEnv {
   PRO_PRICE_STARS: string;
   PRO_DAYS: string;
   TAX_EXPORT_URL: string;
+  CHANNEL: string;
+  CHANNEL_MIN_USD: string;
+  BOT_USERNAME: string;
+}
+
+const LEADERBOARD = "https://stats-data.hyperliquid.xyz/Mainnet/leaderboard";
+
+interface LeaderboardRow {
+  ethAddress: string;
+  accountValue: string;
+  displayName?: string | null;
+  windowPerformances?: Array<[string, { pnl: string; roi: string; vlm: string }]>;
+}
+
+async function getSetting(env: Env, key: string): Promise<string | null> {
+  const r = await env.DB.prepare("SELECT value FROM settings WHERE key = ?").bind(key).first<{ value: string }>();
+  return r?.value ?? null;
+}
+
+/** Resolve CHANNEL ("@name" or id) to a numeric chat id once and cache it. */
+async function channelChatId(env: Env): Promise<number | null> {
+  if (!env.CHANNEL) return null;
+  const cached = await getSetting(env, "channel_chat_id");
+  if (cached) return Number(cached);
+  const chat = await tg<{ id: number }>(env, "getChat", { chat_id: env.CHANNEL });
+  await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('channel_chat_id', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(String(chat.id)).run();
+  return chat.id;
+}
+
+/**
+ * Growth engine: follow the top leaderboard wallets on behalf of the public channel, so every big move
+ * is posted there with a "follow any wallet" footer. Called by /seed (admin) and re-run weekly by the cron.
+ */
+export async function seedChannel(env: Env, n = 40): Promise<{ channel: number | null; added: number }> {
+  const chatId = await channelChatId(env);
+  if (!chatId) return { channel: null, added: 0 };
+  const res = await fetch(LEADERBOARD);
+  if (!res.ok) throw new Error(`leaderboard http ${res.status}`);
+  const json = (await res.json()) as { leaderboardRows?: LeaderboardRow[] };
+  const rows = (json.leaderboardRows ?? [])
+    .map((r) => {
+      const month = r.windowPerformances?.find(([w]) => w === "month")?.[1];
+      return { wallet: r.ethAddress.toLowerCase(), label: (r.displayName || "").slice(0, 24), accountValue: Number(r.accountValue), monthPnl: Number(month?.pnl ?? 0), vlm: Number(month?.vlm ?? 0) };
+    })
+    .filter((r) => r.accountValue >= 1_000_000 && r.vlm > 0)
+    .sort((a, b) => b.monthPnl - a.monthPnl)
+    .slice(0, n);
+  await env.DB.prepare(
+    "INSERT INTO users (chat_id, username, threshold_usd, created_at, last_seen) VALUES (?, 'channel', ?, ?, ?) ON CONFLICT(chat_id) DO UPDATE SET threshold_usd = excluded.threshold_usd",
+  )
+    .bind(chatId, Number(env.CHANNEL_MIN_USD), now(), now())
+    .run();
+  let added = 0;
+  for (const r of rows) {
+    const ins = await env.DB.prepare("INSERT OR IGNORE INTO follows (chat_id, wallet, label, created_at) VALUES (?, ?, ?, ?)").bind(chatId, r.wallet, r.label || null, now()).run();
+    if ((ins.meta.changes ?? 0) > 0) added++;
+    await env.DB.prepare("INSERT OR IGNORE INTO wallets (wallet, last_checked) VALUES (?, 0)").bind(r.wallet).run();
+  }
+  return { channel: chatId, added };
 }
 
 const HL = "https://api.hyperliquid.xyz/info";
@@ -175,10 +234,14 @@ export async function checkWallets(env: Env): Promise<{ checked: number; alerts:
       )
         .bind(w.wallet)
         .all<{ chat_id: number; label: string | null; threshold_usd: number }>();
+      const channelId = await channelChatId(env).catch(() => null);
       for (const fo of followers) {
         const relevant = changes.filter((c) => c.deltaUsd >= fo.threshold_usd);
         if (relevant.length === 0) continue;
-        const text = relevant.map((c) => formatChange(fo.label ?? "", w.wallet, c)).join("\n\n");
+        let text = relevant.map((c) => formatChange(fo.label ?? "", w.wallet, c)).join("\n\n");
+        if (channelId !== null && fo.chat_id === channelId) {
+          text += `\n\nhypurrscan.io/address/${w.wallet}` + (env.BOT_USERNAME ? `\nFollow any wallet: @${env.BOT_USERNAME}` : "");
+        }
         await send(env, fo.chat_id, text);
         await env.DB.prepare("INSERT INTO alerts_log (chat_id, wallet, text, sent_at) VALUES (?, ?, ?, ?)").bind(fo.chat_id, w.wallet, text.slice(0, 500), now()).run();
         alerts++;
@@ -217,6 +280,14 @@ export default {
       });
       return Response.json({ webhook: r });
     }
+    if (url.pathname === "/seed") {
+      if (!env.ADMIN_TOKEN || url.searchParams.get("token") !== env.ADMIN_TOKEN) return new Response("forbidden", { status: 403 });
+      try {
+        return Response.json(await seedChannel(env, Number(url.searchParams.get("n") ?? "40")));
+      } catch (e) {
+        return Response.json({ error: (e as Error).message }, { status: 500 });
+      }
+    }
     if (url.pathname === "/stats" && env.ADMIN_TOKEN && url.searchParams.get("token") === env.ADMIN_TOKEN) {
       const users = await env.DB.prepare("SELECT COUNT(*) AS n, SUM(CASE WHEN pro_until > ? THEN 1 ELSE 0 END) AS pro FROM users").bind(now()).first();
       const follows = await env.DB.prepare("SELECT COUNT(*) AS n, COUNT(DISTINCT wallet) AS wallets FROM follows").first();
@@ -226,7 +297,14 @@ export default {
     if (url.pathname === "/health") return Response.json({ ok: true });
     return new Response("hl-whale-bot", { status: 200 });
   },
-  async scheduled(_e: ScheduledEvent, env: Env, ctx: ExecutionContext) {
-    ctx.waitUntil(checkWallets(env).then((r) => console.log(JSON.stringify(r))));
+  async scheduled(e: ScheduledEvent, env: Env, ctx: ExecutionContext) {
+    // Once a week (Monday 00:00 UTC run) refresh the channel's leaderboard wallets; every run check positions.
+    const d = new Date(e.scheduledTime);
+    const weekly = env.CHANNEL && d.getUTCDay() === 1 && d.getUTCHours() === 0 && d.getUTCMinutes() === 0;
+    ctx.waitUntil(
+      (weekly ? seedChannel(env).catch((err) => console.log(`seed failed: ${(err as Error).message}`)) : Promise.resolve()).then(() =>
+        checkWallets(env).then((r) => console.log(JSON.stringify(r))),
+      ),
+    );
   },
 };

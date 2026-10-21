@@ -20,5 +20,11 @@ PRO_WALLETS = "25"
 PRO_PRICE_STARS = "150"
 PRO_DAYS = "30"
 TAX_EXPORT_URL = "https://hl-tax-export.pages.dev"
+# Public channel the bot posts big moves of leaderboard wallets to (growth engine). "@name" or numeric id.
+# The bot must be an admin of the channel. Empty = channel posting off.
+CHANNEL = ""
+CHANNEL_MIN_USD = "250000"
+# Bot username without @, shown in the channel footer so readers can follow wallets themselves.
+BOT_USERNAME = ""
 
 # Secrets: TELEGRAM_BOT_TOKEN (from @BotFather), WEBHOOK_SECRET (random), ADMIN_TOKEN (random)

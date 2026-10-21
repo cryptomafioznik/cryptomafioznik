@@ -33,3 +33,9 @@ CREATE TABLE IF NOT EXISTS alerts_log (
   text      TEXT NOT NULL,
   sent_at   INTEGER NOT NULL
 );
+
+-- Channel configuration resolved at seed time (numeric chat id of CHANNEL).
+CREATE TABLE IF NOT EXISTS settings (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
