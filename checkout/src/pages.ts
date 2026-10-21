@@ -48,7 +48,7 @@ export function buyPage(p: Product, error?: string): string {
 ${error ? `<p style="color:#b91c1c">${esc(error)}</p>` : ""}
 <form method="post" action="/api/invoice">
 <input type="hidden" name="product_id" value="${esc(p.id)}">
-<label for="email">Email for the receipt and license</label>
+<label for="email">Email, used only if we need to contact you about this order</label>
 <input id="email" type="email" name="email" required placeholder="you@example.com" autocomplete="email">
 <p style="margin-top:14px">Pay with</p>${chains}
 <p style="margin-top:14px"><button type="submit">Continue to payment</button></p>
@@ -84,7 +84,7 @@ export function payPage(inv: InvoiceRow, product: Product | undefined): string {
     ton: "Send USDT (jetton) on TON. Tonkeeper and MyTonWallet open the QR with the amount and comment prefilled. Keep the comment as is.",
   };
   const body = paid
-    ? `<h1 class="ok">Paid</h1><p>Thank you. A receipt has been sent to <b>${esc(inv.email)}</b>.</p>
+    ? `<h1 class="ok">Paid</h1><p>Thank you. Bookmark this page, it keeps your key. ${inv.email_sent_at ? `A receipt was sent to <b>${esc(inv.email)}</b>.` : ""}</p>
 ${inv.license_key ? `<div class="card"><p class="muted" style="margin-top:0">Your license key</p><p class="mono amount" style="font-size:20px">${esc(inv.license_key)}</p></div>` : ""}
 ${product?.delivery.kind === "link" ? `<div class="card"><p class="muted" style="margin-top:0">Your access link</p><p><a href="${esc(product.delivery.url)}">${esc(product.delivery.url)}</a></p></div>` : ""}
 <p class="muted">Transaction: <a href="${esc(c.explorerTx(inv.tx_hash ?? ""))}">${esc((inv.tx_hash ?? "").slice(0, 18))}…</a></p>`

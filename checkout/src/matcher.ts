@@ -99,9 +99,12 @@ export async function runWatchers(env: Env): Promise<Record<string, string>> {
     }
   }
 
-  // Retry receipts that failed to send (Resend outage, key not set yet).
-  for (const inv of await unsentReceipts(env.DB)) {
-    await deliverReceipt(env, inv);
+  // Retry receipts that failed to send (Resend outage). Without a key, email is simply off: the license
+  // lives on the /pay/<id> page, which the buyer can reopen at any time.
+  if (env.RESEND_API_KEY) {
+    for (const inv of await unsentReceipts(env.DB)) {
+      await deliverReceipt(env, inv);
+    }
   }
   return report;
 }

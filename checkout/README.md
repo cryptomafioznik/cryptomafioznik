@@ -12,9 +12,22 @@ Non-custodial stablecoin checkout on Cloudflare Workers. Buyers pay USDC on Base
 
 Products call `GET /api/license/verify?key=...` to validate keys; revoke by setting `revoked_at` in D1.
 
-## Deploy (about 20 minutes, all free tiers)
+## Deploy, automatic (recommended)
 
-Prerequisites: Cloudflare account, Resend account with a verified sending domain, Node 20+.
+A GitHub Actions workflow (`.github/workflows/deploy-checkout.yml`) deploys on every push that touches `checkout/`. One-time setup in the GitHub repo under Settings → Secrets and variables → Actions:
+
+| Secret | Where to get it |
+|---|---|
+| `CLOUDFLARE_API_TOKEN` | Cloudflare dashboard → My Profile → API Tokens → Create Token → template "Edit Cloudflare Workers", add "D1: Edit" |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare dashboard → Workers & Pages, right column |
+| `ADMIN_TOKEN` | any long random string, the password for `/admin` |
+| `RESEND_API_KEY` | optional, enables receipt emails |
+
+The workflow creates the D1 database, applies the schema, generates the license signing secret once, uploads the secrets and deploys. The worker URL is printed at the end of the run. Email is optional: without Resend, the license key is shown on the `/pay/<id>` page, which the buyer can reopen any time.
+
+## Deploy, manual (about 20 minutes)
+
+Prerequisites: Cloudflare account, optionally a Resend account with a verified sending domain, Node 20+.
 
 ```bash
 npm install
