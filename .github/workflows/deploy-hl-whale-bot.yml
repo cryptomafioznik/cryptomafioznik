@@ -1,0 +1,83 @@
+name: deploy hl-whale-bot
+
+# Secrets (repo -> Settings -> Secrets and variables -> Actions):
+#   CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, ADMIN_TOKEN   shared with the checkout workflow
+#   TELEGRAM_BOT_TOKEN                                          from @BotFather
+# WEBHOOK_SECRET is generated once. After deploy the workflow registers the Telegram webhook.
+
+on:
+  push:
+    branches: ["**"]
+    paths: ["hl-whale-bot/**", ".github/workflows/deploy-hl-whale-bot.yml"]
+  workflow_dispatch:
+
+concurrency: deploy-hl-whale-bot
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: hl-whale-bot
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: hl-whale-bot/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run typecheck
+
+      - name: Check secrets
+        id: gate
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ] || [ -z "$TELEGRAM_BOT_TOKEN" ]; then
+            echo "Cloudflare or Telegram secrets not set: tests passed, deploy skipped." >> "$GITHUB_STEP_SUMMARY"; echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Ensure D1 database exists and wire its id
+        if: steps.gate.outputs.ready == 'true'
+        run: |
+          set -e
+          ID=$(npx wrangler d1 list --json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const d=JSON.parse(s).find(x=>x.name==="whalebot");process.stdout.write(d?d.uuid:"")})')
+          if [ -z "$ID" ]; then
+            ID=$(npx wrangler d1 create whalebot | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
+          fi
+          sed -i "s/REPLACE_WITH_D1_ID/$ID/" wrangler.toml
+          npx wrangler d1 execute whalebot --remote --file=./schema.sql
+
+      - name: Ensure worker secrets exist
+        if: steps.gate.outputs.ready == 'true'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+        run: |
+          set -e
+          HAVE=$(npx wrangler secret list --format json 2>/dev/null | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(JSON.parse(s).map(x=>x.name).join(","))}catch{process.stdout.write("")}})' || true)
+          case ",$HAVE," in *,WEBHOOK_SECRET,*) ;; *) openssl rand -hex 24 | npx wrangler secret put WEBHOOK_SECRET ;; esac
+          printf '%s' "$TELEGRAM_BOT_TOKEN" | npx wrangler secret put TELEGRAM_BOT_TOKEN
+          if [ -n "$ADMIN_TOKEN" ]; then printf '%s' "$ADMIN_TOKEN" | npx wrangler secret put ADMIN_TOKEN; fi
+
+      - name: Deploy and register webhook
+        if: steps.gate.outputs.ready == 'true'
+        env:
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+        run: |
+          set -e
+          URL=$(npx wrangler deploy | tee /dev/stderr | grep -oE 'https://[a-z0-9.-]+\.workers\.dev' | head -1)
+          echo "Bot worker: $URL" >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "$ADMIN_TOKEN" ] && [ -n "$URL" ]; then
+            sleep 5
+            curl -sS -o /dev/null -w "webhook setup http %{http_code}\n" "$URL/setup?token=$ADMIN_TOKEN"
+          else
+            echo "ADMIN_TOKEN not set: open /setup?token=... manually once." >> "$GITHUB_STEP_SUMMARY"
+          fi

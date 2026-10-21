@@ -1,0 +1,19 @@
+{
+  "name": "hl-whale-bot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Telegram bot: follow Hyperliquid wallets, get alerts when their positions open, close or change. Free tier plus Telegram Stars.",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:init": "wrangler d1 execute whalebot --remote --file=./schema.sql",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test test/*.test.ts"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241218.0",
+    "typescript": "^5.7.2",
+    "wrangler": "^3.99.0"
+  }
+}
