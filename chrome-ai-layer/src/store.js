@@ -2,7 +2,7 @@
 (function (root) {
   const FREE = { folders: 3, prompts: 10 };
 
-  const empty = () => ({ v: 1, folders: [], convos: [], prompts: [], license: { key: "", validUntil: 0, product: "" }, checkoutUrl: "" });
+  const empty = () => ({ v: 1, folders: [], convos: [], prompts: [], license: { key: "", validUntil: 0, product: "" }, checkoutUrl: "", exports: 0, reviewAsked: false });
 
   const id = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 

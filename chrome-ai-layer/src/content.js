@@ -6,7 +6,8 @@
   const adapter = A.current();
   if (!adapter || document.getElementById("aicl-toggle")) return;
 
-  let state = model.empty();
+  const DEFAULT_CHECKOUT = ""; // set at packaging time
+  let state = { ...model.empty(), checkoutUrl: DEFAULT_CHECKOUT };
   let tab = "folders";
   let flash = null;
 
@@ -160,12 +161,13 @@
       const messages = adapter.messages();
       if (messages.length === 0) return say("No messages found on this page", true);
       const md = MD.conversationToMarkdown(adapter.title(), messages, location.href);
-      if (mode === "copy") return navigator.clipboard.writeText(md).then(() => say(`Copied ${messages.length} messages as Markdown`));
+      if (mode === "copy") return navigator.clipboard.writeText(md).then(() => { say(`Copied ${messages.length} messages as Markdown`); bumpExports(); });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(new Blob([md], { type: "text/markdown" }));
       a.download = adapter.title().replace(/[^\w\- ]+/g, "").trim().slice(0, 60) + ".md";
       a.click();
       say(`Downloaded ${messages.length} messages`);
+      bumpExports();
     };
     return h(
       "div",
@@ -173,12 +175,20 @@
       h("div", {}, `${msgs.length} messages detected on this page.`),
       h("div", { class: "muted" }, "Export keeps headings, lists, code blocks and links."),
       h("div", { style: "margin-top:8px" }, h("button", { class: "aicl-btn", onclick: () => doExport("download") }, "Download .md"), h("button", { class: "aicl-btn sec", onclick: () => doExport("copy") }, "Copy Markdown")),
-      h("div", { class: "muted", style: "margin-top:12px" }, model.isPro(state) ? "Pro active." : "Free plan. Pro: unlimited folders and prompts. Key in the extension options."),
+      h("div", { class: "muted", style: "margin-top:12px" }, model.isPro(state) ? "Pro active." : "Free plan. Pro: unlimited folders and prompts, $19 once."),
+      !model.isPro(state) && state.checkoutUrl ? h("a", { class: "aicl-btn sec", href: `${state.checkoutUrl}/buy/chrome-ai-layer-pro`, target: "_blank", rel: "noopener" }, "Get Pro") : null,
+      (state.exports || 0) >= 10 && !state.reviewAsked
+        ? h("div", { class: "aicl-msg" }, "Useful? A short review in the Chrome Web Store helps a lot. ", h("a", { href: "https://chromewebstore.google.com/detail/" + (chrome.runtime?.id || ""), target: "_blank", rel: "noopener", onclick: () => commit({ ...state, reviewAsked: true }) }, "Write a review"), " · ", h("a", { href: "#", onclick: (e) => { e.preventDefault(); commit({ ...state, reviewAsked: true }); } }, "no thanks"))
+        : null,
     );
   }
 
+  function bumpExports() {
+    commit({ ...state, exports: (state.exports || 0) + 1 });
+  }
+
   io.load().then((s) => {
-    state = s;
+    state = { ...s, checkoutUrl: s.checkoutUrl || DEFAULT_CHECKOUT };
   });
   // Keep state fresh when the options page or another tab changes it.
   if (typeof chrome !== "undefined" && chrome.storage) {
