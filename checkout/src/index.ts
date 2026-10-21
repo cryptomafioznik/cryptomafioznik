@@ -2,9 +2,9 @@ import { Hono } from "hono";
 import { CHAINS, INVOICE_TTL_SECONDS, getProduct, type ChainId } from "./config.ts";
 import { getInvoice, getLicense, insertInvoice, listInvoices, now, takenAmounts } from "./db.ts";
 import { randomId } from "./license.ts";
-import { runWatchers, type Env } from "./matcher.ts";
+import { runWatchers, settle, type Env } from "./matcher.ts";
 import { allocateAmount, unitsToDisplay, usdToUnits } from "./money.ts";
-import { adminPage, buyPage, catalogPage, payPage } from "./pages.ts";
+import { adminPage, buyPage, catalogPage, intakePage, intakesTable, payPage } from "./pages.ts";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -59,7 +59,7 @@ app.post("/api/invoice", async (c) => {
 app.get("/pay/:id", async (c) => {
   const inv = await getInvoice(c.env.DB, c.req.param("id"));
   if (!inv) return c.notFound();
-  return c.html(payPage(inv, getProduct(inv.product_id)));
+  return c.html(payPage(inv, getProduct(inv.product_id), c.env.PUBLIC_URL));
 });
 
 app.get("/api/invoice/:id", async (c) => {
@@ -99,7 +99,55 @@ app.get("/admin", async (c) => {
   const { results: unmatched } = await c.env.DB.prepare(
     "SELECT chain, tx_hash, from_addr, amount_units, memo, seen_at FROM transfers WHERE invoice_id IS NULL ORDER BY seen_at DESC LIMIT 100",
   ).all<{ chain: string; tx_hash: string; from_addr: string | null; amount_units: number; memo: string | null; seen_at: number }>();
-  return c.html(adminPage(rows, unmatched, report));
+  const { results: intakes } = await c.env.DB.prepare("SELECT id, product_id, invoice_id, email, answers, created_at FROM intakes ORDER BY created_at DESC LIMIT 50").all<{ id: number; product_id: string; invoice_id: string | null; email: string; answers: string; created_at: number }>();
+  return c.html(adminPage(rows, unmatched, report, c.env.ADMIN_TOKEN).replace("</main>", `<h2>Intake forms</h2>${intakesTable(intakes)}</main>`));
+});
+
+// Email capture for launch notices (used by the tax exporter's "notify me" form). CORS open: it is called from Pages.
+app.options("/api/subscribe", (c) => c.body(null, 204, { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "content-type", "Access-Control-Allow-Methods": "POST" }));
+app.post("/api/subscribe", async (c) => {
+  const data = await c.req.json<{ email?: string; source?: string }>().catch(() => ({}) as { email?: string; source?: string });
+  const email = String(data.email ?? "").trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 200) return c.json({ error: "bad email" }, 400, { "Access-Control-Allow-Origin": "*" });
+  await c.env.DB.prepare("INSERT OR IGNORE INTO subscribers (email, source, created_at) VALUES (?, ?, ?)").bind(email, String(data.source ?? "").slice(0, 40), now()).run();
+  return c.json({ ok: true }, 200, { "Access-Control-Allow-Origin": "*" });
+});
+
+app.get("/admin/subscribers.csv", async (c) => {
+  const token = c.req.query("token");
+  if (!c.env.ADMIN_TOKEN || token !== c.env.ADMIN_TOKEN) return c.text("forbidden", 403);
+  const { results } = await c.env.DB.prepare("SELECT email, source, created_at FROM subscribers ORDER BY created_at").all<{ email: string; source: string; created_at: number }>();
+  return c.text("email,source,created_at\n" + results.map((r) => `${r.email},${r.source ?? ""},${new Date(r.created_at * 1000).toISOString()}`).join("\n"), 200, { "Content-Type": "text/csv" });
+});
+
+app.get("/intake/:productId", (c) => {
+  const p = getProduct(c.req.param("productId"));
+  if (!p || p.delivery.kind !== "intake") return c.notFound();
+  return c.html(intakePage(p, c.req.query("invoice") ?? "", c.req.query("done") === "1"));
+});
+
+app.post("/api/intake", async (c) => {
+  const form = Object.fromEntries((await c.req.formData()).entries()) as Record<string, string>;
+  const p = getProduct(String(form.product_id ?? ""));
+  if (!p || p.delivery.kind !== "intake") return c.text("unknown product", 400);
+  const email = String(form.email ?? "").trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return c.html(intakePage(p, String(form.invoice_id ?? ""), false, "Enter a valid email"), 400);
+  const answers: Record<string, string> = {};
+  p.delivery.fields.forEach((q, i) => (answers[q] = String(form[`q${i}`] ?? "").slice(0, 4000)));
+  await c.env.DB.prepare("INSERT INTO intakes (product_id, invoice_id, email, answers, created_at) VALUES (?, ?, ?, ?, ?)").bind(p.id, String(form.invoice_id ?? "") || null, email, JSON.stringify(answers), now()).run();
+  return c.redirect(`/intake/${p.id}?done=1`, 303);
+});
+
+// Admin: settle an invoice without a real transfer. For end-to-end testing of license delivery and emails.
+app.post("/admin/simulate", async (c) => {
+  const token = c.req.query("token");
+  if (!c.env.ADMIN_TOKEN || token !== c.env.ADMIN_TOKEN) return c.text("forbidden", 403);
+  const inv = await getInvoice(c.env.DB, c.req.query("invoice") ?? "");
+  if (!inv) return c.json({ error: "invoice not found" }, 404);
+  if (inv.status !== "pending") return c.json({ error: `invoice is ${inv.status}` }, 409);
+  await settle(c.env, inv, { chain: inv.chain, txHash: `simulated-${inv.id}-${now()}`, logIndex: 0, from: "admin-simulated", amountUnits: inv.amount_units, memo: inv.id });
+  if ((c.req.header("accept") ?? "").includes("text/html")) return c.redirect(`/admin?token=${encodeURIComponent(token!)}`, 303);
+  return c.json(await getInvoice(c.env.DB, inv.id));
 });
 
 app.get("/health", (c) => c.json({ ok: true, chains: Object.keys(CHAINS) }));

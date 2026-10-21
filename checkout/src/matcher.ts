@@ -1,5 +1,5 @@
 // Runs on the cron: scans every chain, records transfers, pays invoices, sends receipts.
-import { CHAINS, LATE_PAYMENT_GRACE_SECONDS, getProduct, type ChainId } from "./config.ts";
+import { CHAINS, LATE_PAYMENT_GRACE_SECONDS, deliveryUrl, getProduct, type ChainId } from "./config.ts";
 import {
   expireOld,
   findMatchingInvoice,
@@ -59,7 +59,7 @@ export async function deliverReceipt(env: Env, invoice: InvoiceRow): Promise<voi
     txUrl: invoice.tx_hash ? chain.explorerTx(invoice.tx_hash) : "",
     statusUrl: `${env.PUBLIC_URL}/pay/${invoice.id}`,
     licenseKey: invoice.license_key ?? undefined,
-    link: product.delivery.kind === "link" ? product.delivery.url : undefined,
+    link: deliveryUrl(env.PUBLIC_URL, product, invoice.id),
   });
   const err = await sendEmail(env, invoice.email, msg);
   await setEmailResult(env.DB, invoice.id, err);

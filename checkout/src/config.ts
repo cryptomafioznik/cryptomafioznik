@@ -52,7 +52,8 @@ export const CHAINS: Record<ChainId, ChainConfig> = {
 
 export type Delivery =
   | { kind: "license"; days: number | null } // license key, null = lifetime
-  | { kind: "link"; url: string }; // a download / access link sent by email
+  | { kind: "link"; url: string } // a download / access link sent by email
+  | { kind: "intake"; fields: string[] }; // a form hosted by this worker at /intake/<product>, answers land in /admin
 
 export interface Product {
   id: string;
@@ -75,11 +76,27 @@ export const PRODUCTS: Product[] = [
     active: true,
   },
   {
+    id: "chrome-ai-layer-pro",
+    name: "AI Chat Layer Pro (Chrome extension), lifetime",
+    description: "Unlimited folders and prompts for ChatGPT, Claude and Gemini. One key for all your browsers. Activate in the extension options.",
+    priceUsd: 19,
+    delivery: { kind: "license", days: null },
+    active: true,
+  },
+  {
+    id: "app-in-7-days",
+    name: "iOS app from idea to App Store in 7 days",
+    description: "Native SwiftUI app up to 5 screens, App Store listing, submission under your account, source in your GitHub. Scope call within 24 hours of payment.",
+    priceUsd: 1500,
+    delivery: { kind: "intake", fields: ["What the app should do (3-5 sentences)", "Apple developer account: yes / no / need help", "Links to similar apps or sketches", "Deadline or launch date"] },
+    active: true,
+  },
+  {
     id: "aso-audit",
     name: "App Store page audit & localization",
     description: "Written audit of your App Store listing plus metadata localized into 5 languages. Delivered in 5 business days.",
     priceUsd: 150,
-    delivery: { kind: "link", url: "https://example.com/aso-audit-intake" },
+    delivery: { kind: "intake", fields: ["App Store link", "Target countries", "Monthly downloads now (optional)", "Main competitor", "What you already tried"] },
     active: true,
   },
 ];
@@ -89,4 +106,10 @@ export const LATE_PAYMENT_GRACE_SECONDS = 24 * 60 * 60; // still accept an exact
 
 export function getProduct(id: string): Product | undefined {
   return PRODUCTS.find((p) => p.id === id && p.active);
+}
+
+export function deliveryUrl(publicUrl: string, product: Product, invoiceId: string): string | undefined {
+  if (product.delivery.kind === "link") return product.delivery.url;
+  if (product.delivery.kind === "intake") return `${publicUrl}/intake/${product.id}?invoice=${invoiceId}`;
+  return undefined;
 }

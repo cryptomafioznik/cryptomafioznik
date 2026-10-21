@@ -49,3 +49,20 @@ CREATE TABLE IF NOT EXISTS licenses (
   expires_at  INTEGER,                       -- null = lifetime
   revoked_at  INTEGER
 );
+
+-- Email list (tax-season launch notice). Double opt-in is not implemented: keep it to people who typed their address in.
+CREATE TABLE IF NOT EXISTS subscribers (
+  email      TEXT PRIMARY KEY,
+  source     TEXT,
+  created_at INTEGER NOT NULL
+);
+
+-- Service intake answers, one row per submitted form.
+CREATE TABLE IF NOT EXISTS intakes (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  product_id TEXT NOT NULL,
+  invoice_id TEXT,
+  email      TEXT NOT NULL,
+  answers    TEXT NOT NULL,   -- JSON {question: answer}
+  created_at INTEGER NOT NULL
+);

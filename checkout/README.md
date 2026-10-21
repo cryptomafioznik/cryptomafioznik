@@ -53,6 +53,18 @@ Custom domain: Workers → Settings → Domains & Routes → add `pay.yourdomain
 - toncenter without an API key allows 1 request/second; the watcher makes 1 per minute, which is fine. Get a free key from @tonapibot if you add more workers.
 - Receipts come from Resend's free tier (3 000 emails/month). Until `RESEND_API_KEY` is set, paid invoices stay marked `email_error` and are retried every minute, and the `/pay/<id>` page still shows the license.
 
+## Testing a deployment without spending crypto
+
+`/admin?token=…` has a **simulate** button next to every pending invoice (or `POST /admin/simulate?token=…&invoice=<id>`). It settles the invoice as if an exact-amount transfer had arrived: license issued, receipt sent, pay page flips to Paid. Use it once per product after deploy, then do one real small payment per chain.
+
+## Services intake
+
+Products with `delivery: { kind: "intake", fields: [...] }` get a form at `/intake/<product>`; the paid page and the receipt link to it, answers show up at the bottom of `/admin`. No external form tool needed.
+
+## Email list
+
+`POST /api/subscribe` with `{ "email", "source" }` (CORS open) stores addresses for launch notices; export at `/admin/subscribers.csv?token=…`.
+
 ## Products
 
 Edit `PRODUCTS` in `src/config.ts`. Two delivery kinds:

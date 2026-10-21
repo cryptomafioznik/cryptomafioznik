@@ -1,5 +1,5 @@
 // Server-rendered HTML. No framework, one stylesheet, works on a phone.
-import { CHAINS, PRODUCTS, type ChainId, type Product } from "./config.ts";
+import { CHAINS, PRODUCTS, deliveryUrl, type ChainId, type Product } from "./config.ts";
 import type { InvoiceRow } from "./db.ts";
 import { unitsToDisplay } from "./money.ts";
 
@@ -72,7 +72,8 @@ function payUri(inv: InvoiceRow): string {
   }
 }
 
-export function payPage(inv: InvoiceRow, product: Product | undefined): string {
+export function payPage(inv: InvoiceRow, product: Product | undefined, publicUrl = ""): string {
+  const link = product ? deliveryUrl(publicUrl, product, inv.id) : undefined;
   const c = CHAINS[inv.chain];
   const amount = unitsToDisplay(inv.amount_units, c.decimals);
   const paid = inv.status === "paid";
@@ -86,7 +87,7 @@ export function payPage(inv: InvoiceRow, product: Product | undefined): string {
   const body = paid
     ? `<h1 class="ok">Paid</h1><p>Thank you. Bookmark this page, it keeps your key. ${inv.email_sent_at ? `A receipt was sent to <b>${esc(inv.email)}</b>.` : ""}</p>
 ${inv.license_key ? `<div class="card"><p class="muted" style="margin-top:0">Your license key</p><p class="mono amount" style="font-size:20px">${esc(inv.license_key)}</p></div>` : ""}
-${product?.delivery.kind === "link" ? `<div class="card"><p class="muted" style="margin-top:0">Your access link</p><p><a href="${esc(product.delivery.url)}">${esc(product.delivery.url)}</a></p></div>` : ""}
+${link ? `<div class="card"><p class="muted" style="margin-top:0">${product?.delivery.kind === "intake" ? "Next step: tell us about the project" : "Your access link"}</p><p><a class="btn" href="${esc(link)}">${product?.delivery.kind === "intake" ? "Open the intake form" : esc(link)}</a></p></div>` : ""}
 <p class="muted">Transaction: <a href="${esc(c.explorerTx(inv.tx_hash ?? ""))}">${esc((inv.tx_hash ?? "").slice(0, 18))}…</a></p>`
     : expired
       ? `<h1>Invoice expired</h1><p>This payment request is no longer valid. <a href="/buy/${esc(inv.product_id)}">Start a new one</a>. If you already sent the payment, reply to the receipt address with your transaction hash.</p>`
@@ -113,12 +114,12 @@ async function poll(){try{const r=await fetch('/api/invoice/${esc(inv.id)}');con
   return layout(paid ? "Paid" : "Pay", body);
 }
 
-export function adminPage(rows: InvoiceRow[], unmatched: Array<{ chain: string; tx_hash: string; from_addr: string | null; amount_units: number; memo: string | null; seen_at: number }>, report: Record<string, string> | null): string {
+export function adminPage(rows: InvoiceRow[], unmatched: Array<{ chain: string; tx_hash: string; from_addr: string | null; amount_units: number; memo: string | null; seen_at: number }>, report: Record<string, string> | null, adminToken = ""): string {
   const fmt = (t: number | null) => (t ? new Date(t * 1000).toISOString().replace("T", " ").slice(0, 16) : "");
   const inv = rows
     .map(
       (r) =>
-        `<tr><td class="mono">${esc(r.id)}</td><td>${esc(r.product_id)}</td><td>${esc(r.email)}</td><td>${r.chain}</td><td>${unitsToDisplay(r.amount_units)}</td><td>${r.status}</td><td>${fmt(r.created_at)}</td><td>${fmt(r.paid_at)}</td><td class="mono">${r.tx_hash ? `<a href="${esc(CHAINS[r.chain].explorerTx(r.tx_hash))}">tx</a>` : ""}</td><td>${r.email_sent_at ? "sent" : esc(r.email_error ?? "")}</td></tr>`,
+        `<tr><td class="mono">${esc(r.id)}</td><td>${esc(r.product_id)}</td><td>${esc(r.email)}</td><td>${r.chain}</td><td>${unitsToDisplay(r.amount_units)}</td><td>${r.status}${r.status === "pending" ? ` <form method="post" action="/admin/simulate?token=${encodeURIComponent(adminToken)}&invoice=${esc(r.id)}" style="display:inline"><button class="copy" title="Mark paid without a transfer (test)">simulate</button></form>` : ""}</td><td>${fmt(r.created_at)}</td><td>${fmt(r.paid_at)}</td><td class="mono">${r.tx_hash ? `<a href="${esc(CHAINS[r.chain].explorerTx(r.tx_hash))}">tx</a>` : ""}</td><td>${r.email_sent_at ? "sent" : esc(r.email_error ?? "")}</td></tr>`,
     )
     .join("");
   const um = unmatched
@@ -132,4 +133,32 @@ export function adminPage(rows: InvoiceRow[], unmatched: Array<{ chain: string; 
 <h2>Unmatched transfers</h2><p class="muted">Money that arrived without a matching invoice: wrong amount, late, or a tip. Settle manually if needed.</p>
 <table><tr><th>chain</th><th>tx</th><th>from</th><th>amount</th><th>memo</th><th>seen</th></tr>${um}</table>`,
   );
+}
+
+export function intakePage(p: Product, invoiceId: string, done = false, error?: string): string {
+  if (p.delivery.kind !== "intake") return layout("Not found", "<h1>Not found</h1>");
+  if (done) return layout("Received", `<h1 class="ok">Received</h1><p>Thanks. You will get a reply by email within one business day.</p>`);
+  const fields = p.delivery.fields
+    .map((q, i) => `<label for="q${i}">${esc(q)}</label><textarea id="q${i}" name="q${i}" rows="3" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);font:inherit"></textarea>`)
+    .join("");
+  return layout(
+    `Intake: ${p.name}`,
+    `<h1>${esc(p.name)}</h1><p class="muted">A few questions so the work can start right away.</p>
+<div class="card">${error ? `<p style="color:#b91c1c">${esc(error)}</p>` : ""}
+<form method="post" action="/api/intake"><input type="hidden" name="product_id" value="${esc(p.id)}"><input type="hidden" name="invoice_id" value="${esc(invoiceId)}">
+<label for="email">Your email</label><input id="email" type="email" name="email" required>
+${fields}
+<p style="margin-top:14px"><button type="submit">Send</button></p></form></div>`,
+  );
+}
+
+export function intakesTable(rows: Array<{ id: number; product_id: string; invoice_id: string | null; email: string; answers: string; created_at: number }>): string {
+  return rows
+    .map((r) => {
+      const a = JSON.parse(r.answers) as Record<string, string>;
+      return `<div class="card"><p style="margin-top:0"><b>${esc(r.product_id)}</b> · ${esc(r.email)} · ${new Date(r.created_at * 1000).toISOString().slice(0, 16).replace("T", " ")}${r.invoice_id ? ` · invoice <span class="mono">${esc(r.invoice_id)}</span>` : ""}</p>${Object.entries(a)
+        .map(([q, v]) => `<p class="muted" style="margin:4px 0 0">${esc(q)}</p><p style="margin:0 0 6px;white-space:pre-wrap">${esc(v)}</p>`)
+        .join("")}</div>`;
+    })
+    .join("");
 }
