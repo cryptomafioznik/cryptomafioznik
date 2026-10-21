@@ -26,5 +26,8 @@ CHANNEL = ""
 CHANNEL_MIN_USD = "250000"
 # Bot username without @, shown in the channel footer so readers can follow wallets themselves.
 BOT_USERNAME = ""
+# Optional X cross-posting of channel alerts (secrets X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_SECRET).
+# Only moves at or above this notional are tweeted, at most one per 10 minutes.
+X_MIN_USD = "1000000"
 
 # Secrets: TELEGRAM_BOT_TOKEN (from @BotFather), WEBHOOK_SECRET (random), ADMIN_TOKEN (random)

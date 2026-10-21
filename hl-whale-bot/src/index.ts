@@ -1,8 +1,9 @@
 // Hyperliquid wallet alerts for Telegram. Webhook for commands, cron for position checks, Stars for Pro.
 import { diffSnapshots, formatChange, formatPositions, isAddress, parseState, type ClearinghouseState, type Snapshot } from "./positions.ts";
 import { send, sendStarsInvoice, tg, type TgEnv, type TgUpdate } from "./telegram.ts";
+import { postToX, xEnabled, type XEnv } from "./x.ts";
 
-export interface Env extends TgEnv {
+export interface Env extends TgEnv, XEnv {
   DB: D1Database;
   WEBHOOK_SECRET: string;
   ADMIN_TOKEN?: string;
@@ -15,6 +16,9 @@ export interface Env extends TgEnv {
   CHANNEL: string;
   CHANNEL_MIN_USD: string;
   BOT_USERNAME: string;
+  X_MIN_USD: string;
+  HL_API?: string; // override for local testing
+  TELEGRAM_API?: string; // override for local testing
 }
 
 const LEADERBOARD = "https://stats-data.hyperliquid.xyz/Mainnet/leaderboard";
@@ -45,13 +49,11 @@ async function channelChatId(env: Env): Promise<number | null> {
  * Growth engine: follow the top leaderboard wallets on behalf of the public channel, so every big move
  * is posted there with a "follow any wallet" footer. Called by /seed (admin) and re-run weekly by the cron.
  */
-export async function seedChannel(env: Env, n = 40): Promise<{ channel: number | null; added: number }> {
-  const chatId = await channelChatId(env);
-  if (!chatId) return { channel: null, added: 0 };
+export async function fetchLeaderboard(n: number): Promise<Array<{ wallet: string; label: string; accountValue: number; monthPnl: number; vlm: number }>> {
   const res = await fetch(LEADERBOARD);
   if (!res.ok) throw new Error(`leaderboard http ${res.status}`);
   const json = (await res.json()) as { leaderboardRows?: LeaderboardRow[] };
-  const rows = (json.leaderboardRows ?? [])
+  return (json.leaderboardRows ?? [])
     .map((r) => {
       const month = r.windowPerformances?.find(([w]) => w === "month")?.[1];
       return { wallet: r.ethAddress.toLowerCase(), label: (r.displayName || "").slice(0, 24), accountValue: Number(r.accountValue), monthPnl: Number(month?.pnl ?? 0), vlm: Number(month?.vlm ?? 0) };
@@ -59,6 +61,12 @@ export async function seedChannel(env: Env, n = 40): Promise<{ channel: number |
     .filter((r) => r.accountValue >= 1_000_000 && r.vlm > 0)
     .sort((a, b) => b.monthPnl - a.monthPnl)
     .slice(0, n);
+}
+
+export async function seedChannel(env: Env, n = 40): Promise<{ channel: number | null; added: number }> {
+  const chatId = await channelChatId(env);
+  if (!chatId) return { channel: null, added: 0 };
+  const rows = await fetchLeaderboard(n);
   await env.DB.prepare(
     "INSERT INTO users (chat_id, username, threshold_usd, created_at, last_seen) VALUES (?, 'channel', ?, ?, ?) ON CONFLICT(chat_id) DO UPDATE SET threshold_usd = excluded.threshold_usd",
   )
@@ -73,7 +81,7 @@ export async function seedChannel(env: Env, n = 40): Promise<{ channel: number |
   return { channel: chatId, added };
 }
 
-const HL = "https://api.hyperliquid.xyz/info";
+const HL_DEFAULT = "https://api.hyperliquid.xyz/info";
 const now = () => Math.floor(Date.now() / 1000);
 
 interface User {
@@ -98,6 +106,7 @@ const HELP = (env: Env) =>
   [
     "I watch Hyperliquid wallets and tell you when their positions change.",
     "",
+    "/top                 top leaderboard wallets, tap to follow",
     "/follow 0x… [name]   follow a wallet",
     "/unfollow 0x…        stop following",
     "/list                your wallets and their open positions",
@@ -109,10 +118,30 @@ const HELP = (env: Env) =>
     `Tax season? Export your own Hyperliquid trades for Koinly: ${env.TAX_EXPORT_URL}`,
   ].join("\n");
 
-async function fetchState(wallet: string): Promise<ClearinghouseState> {
-  const res = await fetch(HL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "clearinghouseState", user: wallet }) });
+async function fetchState(wallet: string, api = HL_DEFAULT): Promise<ClearinghouseState> {
+  const res = await fetch(api, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "clearinghouseState", user: wallet }) });
   if (!res.ok) throw new Error(`hyperliquid http ${res.status}`);
   return (await res.json()) as ClearinghouseState;
+}
+
+
+async function followWallet(env: Env, user: User, chatId: number, wallet: string, label: string | null): Promise<void> {
+  const limit = Number(isPro(user) ? env.PRO_WALLETS : env.FREE_WALLETS);
+  const count = (await env.DB.prepare("SELECT COUNT(*) AS n FROM follows WHERE chat_id = ?").bind(chatId).first<{ n: number }>())!.n;
+  const exists = await env.DB.prepare("SELECT 1 FROM follows WHERE chat_id = ? AND wallet = ?").bind(chatId, wallet).first();
+  if (!exists && count >= limit) return send(env, chatId, `You follow ${count} wallets, the ${isPro(user) ? "Pro" : "free"} limit. ${isPro(user) ? "" : "/pro raises it to " + env.PRO_WALLETS + "."}`);
+  await env.DB.batch([
+    env.DB.prepare("INSERT INTO follows (chat_id, wallet, label, created_at) VALUES (?, ?, ?, ?) ON CONFLICT(chat_id, wallet) DO UPDATE SET label = COALESCE(excluded.label, follows.label)").bind(chatId, wallet, label, now()),
+    env.DB.prepare("INSERT OR IGNORE INTO wallets (wallet, last_checked) VALUES (?, 0)").bind(wallet),
+  ]);
+  // Show current positions right away and seed the snapshot so the first cron run does not alert on everything.
+  try {
+    const snap = parseState(await fetchState(wallet, env.HL_API));
+    await env.DB.prepare("UPDATE wallets SET snapshot = COALESCE(snapshot, ?), last_checked = CASE WHEN snapshot IS NULL THEN ? ELSE last_checked END WHERE wallet = ?").bind(JSON.stringify(snap), now(), wallet).run();
+    return send(env, chatId, `Following. ${formatPositions(label ?? "", wallet, snap)}`);
+  } catch (e) {
+    return send(env, chatId, `Following ${wallet}. Could not read positions right now (${(e as Error).message}); alerts start with the next check.`);
+  }
 }
 
 async function handleCommand(env: Env, chatId: number, text: string, username?: string): Promise<void> {
@@ -125,28 +154,24 @@ async function handleCommand(env: Env, chatId: number, text: string, username?: 
     case "/help":
       return send(env, chatId, HELP(env));
 
+    case "/top": {
+      try {
+        const rows = await fetchLeaderboard(10);
+        const usd = (n: number) => (Math.abs(n) >= 1e6 ? `$${(n / 1e6).toFixed(1)}M` : `$${(n / 1e3).toFixed(0)}K`);
+        const lines = rows.map((r, i) => `${i + 1}. ${r.label || r.wallet.slice(0, 6) + "…" + r.wallet.slice(-4)} · 30d PnL ${usd(r.monthPnl)} · equity ${usd(r.accountValue)}`);
+        const keyboard = rows.map((r) => [{ text: `Follow ${r.label || r.wallet.slice(0, 6) + "…" + r.wallet.slice(-4)}`, callback_data: `f:${r.wallet}` }]);
+        return send(env, chatId, `Top wallets by 30-day PnL on the Hyperliquid leaderboard:\n\n${lines.join("\n")}\n\nTap to follow:`, { reply_markup: { inline_keyboard: keyboard } });
+      } catch (e) {
+        return send(env, chatId, `Leaderboard unavailable right now: ${(e as Error).message}`);
+      }
+    }
+
     case "/follow": {
       const wallet = (args[0] ?? "").toLowerCase();
       if (!isAddress(wallet)) return send(env, chatId, "Usage: /follow 0x… [name]");
       const label = args.slice(1).join(" ").slice(0, 32) || null;
-      const limit = Number(isPro(user) ? env.PRO_WALLETS : env.FREE_WALLETS);
-      const count = (await env.DB.prepare("SELECT COUNT(*) AS n FROM follows WHERE chat_id = ?").bind(chatId).first<{ n: number }>())!.n;
-      const exists = await env.DB.prepare("SELECT 1 FROM follows WHERE chat_id = ? AND wallet = ?").bind(chatId, wallet).first();
-      if (!exists && count >= limit) return send(env, chatId, `You follow ${count} wallets, the ${isPro(user) ? "Pro" : "free"} limit. ${isPro(user) ? "" : "/pro raises it to " + env.PRO_WALLETS + "."}`);
-      await env.DB.batch([
-        env.DB.prepare("INSERT INTO follows (chat_id, wallet, label, created_at) VALUES (?, ?, ?, ?) ON CONFLICT(chat_id, wallet) DO UPDATE SET label = COALESCE(excluded.label, follows.label)").bind(chatId, wallet, label, now()),
-        env.DB.prepare("INSERT OR IGNORE INTO wallets (wallet, last_checked) VALUES (?, 0)").bind(wallet),
-      ]);
-      // Show current positions right away and seed the snapshot so the first cron run does not alert on everything.
-      try {
-        const snap = parseState(await fetchState(wallet));
-        await env.DB.prepare("UPDATE wallets SET snapshot = COALESCE(snapshot, ?), last_checked = CASE WHEN snapshot IS NULL THEN ? ELSE last_checked END WHERE wallet = ?").bind(JSON.stringify(snap), now(), wallet).run();
-        return send(env, chatId, `Following. ${formatPositions(label ?? "", wallet, snap)}`);
-      } catch (e) {
-        return send(env, chatId, `Following ${wallet}. Could not read positions right now (${(e as Error).message}); alerts start with the next check.`);
-      }
+      return followWallet(env, user, chatId, wallet, label);
     }
-
     case "/unfollow": {
       const wallet = (args[0] ?? "").toLowerCase();
       if (!isAddress(wallet)) return send(env, chatId, "Usage: /unfollow 0x…");
@@ -165,7 +190,7 @@ async function handleCommand(env: Env, chatId: number, text: string, username?: 
       const wallet = (args[0] ?? "").toLowerCase();
       if (!isAddress(wallet)) return send(env, chatId, "Usage: /positions 0x…");
       try {
-        return send(env, chatId, formatPositions("", wallet, parseState(await fetchState(wallet))));
+        return send(env, chatId, formatPositions("", wallet, parseState(await fetchState(wallet, env.HL_API))));
       } catch (e) {
         return send(env, chatId, `Could not read positions: ${(e as Error).message}`);
       }
@@ -190,6 +215,18 @@ async function handleCommand(env: Env, chatId: number, text: string, username?: 
 }
 
 async function handleUpdate(env: Env, u: TgUpdate): Promise<void> {
+  if (u.callback_query) {
+    const q = u.callback_query;
+    const chatId = q.message?.chat.id ?? q.from.id;
+    if (q.data?.startsWith("f:") && isAddress(q.data.slice(2))) {
+      const user = await getUser(env, chatId, q.from.username);
+      await tg(env, "answerCallbackQuery", { callback_query_id: q.id, text: "Following…" }).catch(() => {});
+      await followWallet(env, user, chatId, q.data.slice(2).toLowerCase(), null);
+    } else {
+      await tg(env, "answerCallbackQuery", { callback_query_id: q.id }).catch(() => {});
+    }
+    return;
+  }
   if (u.pre_checkout_query) {
     await tg(env, "answerPreCheckoutQuery", { pre_checkout_query_id: u.pre_checkout_query.id, ok: true });
     return;
@@ -223,7 +260,7 @@ export async function checkWallets(env: Env): Promise<{ checked: number; alerts:
     errors = 0;
   for (const w of wallets) {
     try {
-      const after = parseState(await fetchState(w.wallet));
+      const after = parseState(await fetchState(w.wallet, env.HL_API));
       const before: Snapshot | null = w.snapshot ? (JSON.parse(w.snapshot) as Snapshot) : null;
       await env.DB.prepare("UPDATE wallets SET snapshot = ?, last_checked = ?, error = NULL WHERE wallet = ?").bind(JSON.stringify(after), now(), w.wallet).run();
       if (!before) continue; // first observation seeds the snapshot
@@ -239,11 +276,21 @@ export async function checkWallets(env: Env): Promise<{ checked: number; alerts:
         const relevant = changes.filter((c) => c.deltaUsd >= fo.threshold_usd);
         if (relevant.length === 0) continue;
         let text = relevant.map((c) => formatChange(fo.label ?? "", w.wallet, c)).join("\n\n");
+        const biggest = relevant[0].deltaUsd;
         if (channelId !== null && fo.chat_id === channelId) {
           text += `\n\nhypurrscan.io/address/${w.wallet}` + (env.BOT_USERNAME ? `\nFollow any wallet: @${env.BOT_USERNAME}` : "");
+          if (xEnabled(env) && biggest >= Number(env.X_MIN_USD || "1000000")) {
+            // At most one tweet per 10 minutes: the free X tier is 1,500 posts/month.
+            const last = Number((await getSetting(env, "last_x_post")) ?? "0");
+            if (now() - last >= 600) {
+              const channelLink = env.CHANNEL.startsWith("@") ? `t.me/${env.CHANNEL.slice(1)}` : "";
+              const id = await postToX(env, `${formatChange(fo.label ?? "", w.wallet, relevant[0])}\n\nhypurrscan.io/address/${w.wallet}${channelLink ? `\nEvery move of the top 40 wallets, free: ${channelLink}` : ""}`);
+              if (id) await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('last_x_post', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(String(now())).run();
+            }
+          }
         }
         await send(env, fo.chat_id, text);
-        await env.DB.prepare("INSERT INTO alerts_log (chat_id, wallet, text, sent_at) VALUES (?, ?, ?, ?)").bind(fo.chat_id, w.wallet, text.slice(0, 500), now()).run();
+        await env.DB.prepare("INSERT INTO alerts_log (chat_id, wallet, text, sent_at, amount_usd) VALUES (?, ?, ?, ?, ?)").bind(fo.chat_id, w.wallet, text.slice(0, 500), now(), Math.round(biggest)).run();
         alerts++;
       }
     } catch (e) {
@@ -252,6 +299,18 @@ export async function checkWallets(env: Env): Promise<{ checked: number; alerts:
     }
   }
   return { checked: wallets.length, alerts, errors };
+}
+
+/** Daily channel digest: the five largest moves of the last 24 hours. Keeps the channel alive on quiet days. */
+export async function postDigest(env: Env): Promise<boolean> {
+  const chatId = await channelChatId(env);
+  if (!chatId) return false;
+  const { results } = await env.DB.prepare("SELECT text, amount_usd FROM alerts_log WHERE chat_id = ? AND sent_at > ? ORDER BY amount_usd DESC LIMIT 5").bind(chatId, now() - 86400).all<{ text: string; amount_usd: number }>();
+  const total = await env.DB.prepare("SELECT COUNT(*) AS n FROM alerts_log WHERE chat_id = ? AND sent_at > ?").bind(chatId, now() - 86400).first<{ n: number }>();
+  if (!results.length) return false;
+  const body = results.map((r, i) => `${i + 1}. ${r.text.split("\n\n")[0]}`).join("\n\n");
+  await send(env, chatId, `📊 Last 24h: ${total?.n ?? results.length} moves from the top 40 wallets. The biggest:\n\n${body}` + (env.BOT_USERNAME ? `\n\nFollow any wallet: @${env.BOT_USERNAME}` : ""));
+  return true;
 }
 
 export default {
@@ -266,9 +325,10 @@ export default {
     if (url.pathname === "/setup") {
       // One-time: registers the webhook with Telegram. GET /setup?token=<ADMIN_TOKEN>
       if (!env.ADMIN_TOKEN || url.searchParams.get("token") !== env.ADMIN_TOKEN) return new Response("forbidden", { status: 403 });
-      const r = await tg(env, "setWebhook", { url: `${url.origin}/tg`, secret_token: env.WEBHOOK_SECRET, allowed_updates: ["message", "pre_checkout_query"] });
+      const r = await tg(env, "setWebhook", { url: `${url.origin}/tg`, secret_token: env.WEBHOOK_SECRET, allowed_updates: ["message", "pre_checkout_query", "callback_query"] });
       await tg(env, "setMyCommands", {
         commands: [
+          { command: "top", description: "Top leaderboard wallets, tap to follow" },
           { command: "follow", description: "Follow a wallet: /follow 0x… [name]" },
           { command: "unfollow", description: "Stop following a wallet" },
           { command: "list", description: "Your wallets and their positions" },
@@ -301,10 +361,11 @@ export default {
     // Once a week (Monday 00:00 UTC run) refresh the channel's leaderboard wallets; every run check positions.
     const d = new Date(e.scheduledTime);
     const weekly = env.CHANNEL && d.getUTCDay() === 1 && d.getUTCHours() === 0 && d.getUTCMinutes() === 0;
+    const digest = env.CHANNEL && d.getUTCHours() === 7 && d.getUTCMinutes() === 5; // 07:05 UTC, before the US session
     ctx.waitUntil(
-      (weekly ? seedChannel(env).catch((err) => console.log(`seed failed: ${(err as Error).message}`)) : Promise.resolve()).then(() =>
-        checkWallets(env).then((r) => console.log(JSON.stringify(r))),
-      ),
+      (weekly ? seedChannel(env).catch((err) => console.log(`seed failed: ${(err as Error).message}`)) : Promise.resolve())
+        .then(() => (digest ? postDigest(env).catch((err) => console.log(`digest failed: ${(err as Error).message}`)) : Promise.resolve(false)))
+        .then(() => checkWallets(env).then((r) => console.log(JSON.stringify(r)))),
     );
   },
 };

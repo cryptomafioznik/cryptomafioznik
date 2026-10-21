@@ -29,6 +29,16 @@ Manual alternative: `npm install`, `wrangler d1 create whalebot`, paste the id i
 
 Stars accumulate on the bot owner's account. Withdraw via Fragment after a 21-day hold, 1 000 Stars minimum, with Fragment's identity check. Telegram pays about $0.013 per Star. 150 Stars for 30 days is therefore about $2 net per Pro user per month; raise `PRO_PRICE_STARS` once the bot has traction.
 
+## Commands and growth features
+
+- `/top`: top 10 leaderboard wallets by 30-day PnL with tap-to-follow buttons.
+- Daily digest at 07:05 UTC in the channel: the five largest moves of the last 24 hours.
+- Optional X cross-posting: add secrets `X_API_KEY`, `X_API_SECRET`, `X_ACCESS_TOKEN`, `X_ACCESS_SECRET` (free X developer tier). Channel moves at or above `X_MIN_USD` are tweeted with the channel link, at most one per 10 minutes.
+
+## Local end-to-end test
+
+`HL_API` and `TELEGRAM_API` vars can point the worker at fake servers. Put `TELEGRAM_BOT_TOKEN`, `WEBHOOK_SECRET`, `ADMIN_TOKEN`, `HL_API=http://127.0.0.1:18099/info` and `TELEGRAM_API=http://127.0.0.1:18099` in `.dev.vars`, apply the schema to the local D1, start the dev server with `--test-scheduled`, post updates to `/tg` and hit `/__scheduled` to run the cron. This is how the bot was verified: commands, alerts, tap-to-follow, Stars payment.
+
 ## Development
 
 ```bash

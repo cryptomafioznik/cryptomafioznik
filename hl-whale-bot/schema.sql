@@ -31,7 +31,8 @@ CREATE TABLE IF NOT EXISTS alerts_log (
   chat_id   INTEGER NOT NULL,
   wallet    TEXT NOT NULL,
   text      TEXT NOT NULL,
-  sent_at   INTEGER NOT NULL
+  sent_at   INTEGER NOT NULL,
+  amount_usd INTEGER NOT NULL DEFAULT 0
 );
 
 -- Channel configuration resolved at seed time (numeric chat id of CHANNEL).

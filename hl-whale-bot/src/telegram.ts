@@ -1,12 +1,14 @@
 // Thin Telegram Bot API client.
 export interface TgEnv {
   TELEGRAM_BOT_TOKEN: string;
+  TELEGRAM_API?: string; // default https://api.telegram.org, overridable for local tests
 }
 
 export interface TgUpdate {
   update_id: number;
   message?: TgMessage;
   pre_checkout_query?: { id: string; from: { id: number }; currency: string; total_amount: number; invoice_payload: string };
+  callback_query?: { id: string; from: { id: number; username?: string }; message?: { chat: { id: number } }; data?: string };
 }
 
 export interface TgMessage {
@@ -18,7 +20,7 @@ export interface TgMessage {
 }
 
 export async function tg<T = unknown>(env: TgEnv, method: string, body: Record<string, unknown>): Promise<T> {
-  const res = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/${method}`, {
+  const res = await fetch(`${env.TELEGRAM_API ?? "https://api.telegram.org"}/bot${env.TELEGRAM_BOT_TOKEN}/${method}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
