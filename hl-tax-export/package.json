@@ -1,0 +1,19 @@
+{
+  "name": "hl-tax-export",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Export Hyperliquid and Polymarket trades, funding and transfers into Koinly-ready CSV with PnL and funding summaries.",
+  "type": "module",
+  "bin": {
+    "hl-tax-export": "./src/cli.ts"
+  },
+  "scripts": {
+    "start": "node --experimental-strip-types src/cli.ts",
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  }
+}
