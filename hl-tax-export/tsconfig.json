@@ -12,5 +12,5 @@
     "rewriteRelativeImportExtensions": false,
     "verbatimModuleSyntax": true
   },
-  "include": ["src/**/*.ts", "test/**/*.ts"]
+  "include": ["src/**/*.ts", "test/**/*.ts", "web/**/*.ts"]
 }

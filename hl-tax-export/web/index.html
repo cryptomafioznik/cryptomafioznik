@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hyperliquid Tax Export for Koinly: trades, funding, PnL CSV</title>
+<meta name="description" content="Free Hyperliquid tax export: turn any wallet's perp trades, hourly funding, deposits and withdrawals into a Koinly-ready CSV with a realized PnL summary. Polymarket trades included. Runs in your browser, no API keys.">
+<link rel="canonical" href="https://hl-tax-export.pages.dev/">
+<meta property="og:title" content="Hyperliquid Tax Export for Koinly">
+<meta property="og:description" content="Perp trades, hourly funding and PnL from any Hyperliquid wallet into a Koinly CSV. Free preview, runs in your browser.">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Hyperliquid Tax Export","applicationCategory":"FinanceApplication","operatingSystem":"Web","offers":{"@type":"Offer","price":"39","priceCurrency":"USD"},"description":"Export Hyperliquid and Polymarket trades, funding and PnL into a Koinly CSV."}
+</script>
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[
+{"@type":"Question","name":"Does Koinly support Hyperliquid?","acceptedAnswer":{"@type":"Answer","text":"Koinly can sync a Hyperliquid wallet, but users report unmatched history, perp closes treated as asset disposals and missing staked HYPE. This tool produces a clean universal CSV where every perp close is a realized gain or loss, fees are costs and funding is summed per day."}},
+{"@type":"Question","name":"How is Hyperliquid funding taxed?","acceptedAnswer":{"@type":"Answer","text":"Funding is paid or received every hour while a perp position is open, up to 8,760 settlements per position per year. Most tax tools and accountants treat the net funding as part of trading profit and loss. The export sums funding per UTC day and labels it as realized gain, or as income and cost if you prefer."}},
+{"@type":"Question","name":"Is my wallet data sent to a server?","acceptedAnswer":{"@type":"Answer","text":"No. The page calls the public Hyperliquid and Polymarket APIs directly from your browser and builds the files locally. Only a license key, if you have one, is checked against our server."}},
+{"@type":"Question","name":"Does it include Polymarket?","acceptedAnswer":{"@type":"Answer","text":"Yes. Enter your Polymarket proxy wallet and every buy and sell of outcome shares is exported as a USDC swap. Redemptions of winning shares are on-chain and should be imported from your Polygon wallet."}}
+]}
+</script>
+<style>
+:root{--bg:#fff;--fg:#111;--muted:#666;--line:#e5e5e5;--card:#fafafa;--accent:#111;--ok:#15803d}
+@media(prefers-color-scheme:dark){:root{--bg:#0f0f10;--fg:#f2f2f2;--muted:#a1a1aa;--line:#27272a;--card:#18181b;--accent:#f2f2f2;--ok:#4ade80}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.55 -apple-system,Segoe UI,Roboto,sans-serif}
+main{max-width:720px;margin:0 auto;padding:28px 16px 64px}h1{font-size:26px;line-height:1.25;margin:0 0 8px}h2{font-size:19px;margin:32px 0 8px}h3{font-size:16px;margin:18px 0 4px}
+p{margin:8px 0}.muted{color:var(--muted)}.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin:14px 0}
+label{display:block;margin:12px 0 4px;font-size:14px}input[type=text],select{width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);font-size:16px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:560px){.row{grid-template-columns:1fr}}
+button,.btn{display:inline-block;background:var(--accent);color:var(--bg);border:0;border-radius:8px;padding:12px 18px;font-size:16px;cursor:pointer;text-decoration:none}button:disabled{opacity:.5}
+pre{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px;font-size:13px;overflow:auto;white-space:pre}
+#log{max-height:160px;overflow:auto}.dl{display:block;margin:6px 0;font-weight:600}
+table{width:100%;border-collapse:collapse;font-size:14px}td,th{border-bottom:1px solid var(--line);padding:6px 4px;text-align:left;vertical-align:top}
+.notice{border-left:3px solid var(--ok);padding-left:12px}
+</style>
+</head>
+<body>
+<main>
+<h1>Hyperliquid tax export for Koinly</h1>
+<p class="muted">Perp trades, hourly funding, deposits, withdrawals and Polymarket trades from any wallet, turned into a Koinly-ready CSV plus a realized PnL summary. Runs in your browser. No API keys, no sign-up.</p>
+
+<div class="card">
+<div class="row">
+<div><label for="hl">Hyperliquid wallet (0x…)</label><input id="hl" type="text" placeholder="0x…" autocomplete="off" spellcheck="false"></div>
+<div><label for="pm">Polymarket proxy wallet, optional (0x…)</label><input id="pm" type="text" placeholder="0x…" autocomplete="off" spellcheck="false"></div>
+</div>
+<div class="row">
+<div><label for="year">Tax year (UTC)</label><select id="year"></select></div>
+<div><label for="license">License key, optional</label><input id="license" type="text" placeholder="HLTAXE-XXXX-XXXX-XXXX-XXXX" autocomplete="off" spellcheck="false"></div>
+</div>
+<div class="row">
+<div><label for="funding">Funding label</label><select id="funding"><option value="realized gain">realized gain (default)</option><option value="income/cost">income / cost</option></select></div>
+<div><label for="fees">Trading fees</label><select id="fees"><option value="separate">separate "cost" rows (default)</option><option value="inline">attached to the PnL row</option></select></div>
+</div>
+<label><input id="hourly" type="checkbox"> Keep every hourly funding payment as its own row (large files)</label>
+<p style="margin-top:14px"><button id="run">Build export</button></p>
+<pre id="log" aria-live="polite"></pre>
+<div id="downloads"></div>
+<div id="cap" hidden class="notice"><p><b>Free preview:</b> the files contain the first 300 rows of <span id="cap-count"></span>. The summary above is complete. A license for one tax year removes the cap for every export of that year.</p><p><a class="btn" id="buy" href="#">Get a license, $39 in USDC</a></p></div>
+</div>
+
+<h2>Summary</h2>
+<pre id="summary" class="muted">Run an export to see realized PnL, fees and funding per asset.</pre>
+
+<h2>What you get</h2>
+<table>
+<tr><th>File</th><th>Use</th></tr>
+<tr><td><b>koinly.csv</b></td><td>Koinly universal format. Wallets → Add wallet → Hyperliquid → Import from file.</td></tr>
+<tr><td><b>events.csv</b></td><td>Every fill, funding payment, deposit, withdrawal, transfer and Polymarket trade, normalized. For spreadsheets, Awaken, CoinTracker, your accountant.</td></tr>
+<tr><td><b>summary.txt</b></td><td>Realized PnL, fees, funding and net per asset, totals, deposits and withdrawals. Check it against Hyperliquid's own PnL before importing.</td></tr>
+</table>
+
+<h2>How events are mapped</h2>
+<table>
+<tr><th>Hyperliquid</th><th>Koinly row</th></tr>
+<tr><td>Perp close, profit</td><td>Received USDC, label <i>realized gain</i></td></tr>
+<tr><td>Perp close, loss</td><td>Sent USDC, label <i>realized gain</i> (Koinly books a sent realized gain as a loss)</td></tr>
+<tr><td>Trading fee</td><td>Sent USDC, label <i>cost</i>, or attached to the PnL row</td></tr>
+<tr><td>Funding</td><td>Net per UTC day per asset, <i>realized gain</i> or <i>income</i> / <i>cost</i></td></tr>
+<tr><td>Deposit, withdrawal</td><td>Plain transfer rows, withdrawal fee in the fee column</td></tr>
+<tr><td>Spot trade</td><td>USDC ↔ token swap, fee valued in USDC</td></tr>
+<tr><td>Perp ↔ spot, vault, sub-account moves</td><td>Left out of the tax file, present in events.csv</td></tr>
+<tr><td>Polymarket buy / sell</td><td>USDC ↔ <code>PM:market/outcome</code> swap</td></tr>
+</table>
+
+<h2>Questions</h2>
+<h3>Does Koinly support Hyperliquid?</h3>
+<p>Koinly can sync a Hyperliquid address, but its own forum has threads about unmatched purchase history, perp closes treated as disposals of assets you never held, and staked HYPE not showing. A clean universal CSV avoids all three: every perp close is a realized gain or loss, fees are costs, funding is summed per day.</p>
+<h3>How is funding taxed?</h3>
+<p>Funding settles every hour while a perp position is open, up to 8,760 times per position per year. Most tools and accountants treat the net amount as part of trading profit and loss. Pick the label that matches your accountant's method.</p>
+<h3>Is my data sent anywhere?</h3>
+<p>No. Your browser calls the public Hyperliquid and Polymarket APIs and builds the files locally. Only a license key, if you enter one, is verified against our server.</p>
+<h3>What about Polymarket redemptions?</h3>
+<p>Winning shares are redeemed on-chain on Polygon and are not in the trades API. Import your Polygon wallet alongside this file; the outcome tokens then resolve to USDC.</p>
+<p class="muted">Nothing on this page is tax advice. Tax treatment of perpetuals and prediction markets differs by country.</p>
+</main>
+<script src="app.js"></script>
+</body>
+</html>

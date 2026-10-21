@@ -10,10 +10,14 @@
   "scripts": {
     "start": "node --experimental-strip-types src/cli.ts",
     "test": "node --experimental-strip-types --test test/*.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build:web": "node build-web.mjs",
+    "test:web": "node build-web.mjs && node test/web-smoke.mjs ./dist ./test/fixtures/hl.json ./dist/smoke.png"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
-    "typescript": "^5.7.2"
+    "esbuild": "^0.24.2",
+    "typescript": "^5.7.2",
+    "wrangler": "^3.99.0"
   }
 }
