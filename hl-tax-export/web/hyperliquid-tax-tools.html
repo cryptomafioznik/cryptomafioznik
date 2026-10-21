@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hyperliquid tax export for Awaken, CoinTracker, CoinLedger and TokenTax</title>
+<meta name="description" content="Which crypto tax tools handle Hyperliquid perps, which only take CSV, and how to feed each of them a clean trades, funding and PnL export.">
+<link rel="canonical" href="https://hl-tax-export.pages.dev/hyperliquid-tax-tools.html">
+<link rel="stylesheet" href="guide.css">
+</head>
+<body>
+<main>
+<nav><a href="/">Exporter</a> · <a href="hyperliquid-koinly.html">Koinly guide</a> · <a href="hyperliquid-funding-tax.html">Funding and taxes</a> · <a href="polymarket-taxes.html">Polymarket taxes</a> · <a href="hyperliquid-tax-tools.html"><b>Awaken, CoinTracker, CoinLedger</b></a></nav>
+<h1>Hyperliquid in other tax tools</h1>
+<p class="muted">Updated October 2026. Check each vendor's current integration page; this changes every season.</p>
+
+<table>
+<tr><th>Tool</th><th>Hyperliquid support</th><th>What to use from the exporter</th></tr>
+<tr><td><b>Koinly</b></td><td>Address sync exists; perps and funding often misreported</td><td><code>koinly.csv</code>, see the <a href="hyperliquid-koinly.html">guide</a></td></tr>
+<tr><td><b>Awaken</b></td><td>Purpose-built for on-chain and perps, direct integration; free under 300 transactions</td><td>Use Awaken's own sync. Use <code>summary.txt</code> to verify its realized PnL and funding totals.</td></tr>
+<tr><td><b>CoinTracker</b></td><td>No native perp support at the time of writing; CSV import</td><td><code>events.csv</code>, map columns in CoinTracker's custom CSV template: realized gains as income/loss entries</td></tr>
+<tr><td><b>CoinLedger</b></td><td>CSV only</td><td><code>events.csv</code>, same approach</td></tr>
+<tr><td><b>TokenTax</b></td><td>CSV / manual</td><td><code>events.csv</code> plus <code>summary.txt</code> for the accountant</td></tr>
+<tr><td><b>Your accountant</b></td><td>—</td><td><code>summary.txt</code> first, <code>events.csv</code> as the ledger</td></tr>
+</table>
+
+<h2>The events file</h2>
+<p><code>events.csv</code> is one row per normalized event with venue, kind, time, asset, size, price, realized PnL, fee, cash amount, transaction hash and a plain-English note. Kinds: <code>perp_open</code>, <code>perp_close</code>, <code>spot_buy</code>, <code>spot_sell</code>, <code>funding</code>, <code>deposit</code>, <code>withdraw</code>, <code>transfer_in</code>, <code>transfer_out</code>, <code>liquidation</code>, <code>pm_buy</code>, <code>pm_sell</code>. Any tool with a custom CSV importer can be fed from it with a column mapping, and any spreadsheet can pivot it.</p>
+
+<h2>Reconciling before you trust an import</h2>
+<ol>
+<li>Export the tax year and read <code>summary.txt</code>.</li>
+<li>Compare the per-asset realized PnL with Hyperliquid's portfolio page for the same period.</li>
+<li>Compare deposits and withdrawals with your Arbitrum wallet.</li>
+<li>Only then import into the tax tool, and compare its totals to the summary.</li>
+</ol>
+<p>Most "my numbers are wrong" cases are a second wallet, a sub-account or a vault that was not exported. Export each address separately.</p>
+
+<p class="cta"><a class="btn" href="/">Build the export</a></p>
+<p class="muted">Not tax advice.</p>
+</main>
+</body>
+</html>

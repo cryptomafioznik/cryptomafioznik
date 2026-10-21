@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hyperliquid funding payments and taxes: how to report 8,760 hourly settlements</title>
+<meta name="description" content="Hyperliquid pays or charges funding every hour. What that means for your tax report, how to sum it per day, and how to pull the exact numbers for any wallet.">
+<link rel="canonical" href="https://hl-tax-export.pages.dev/hyperliquid-funding-tax.html">
+<link rel="stylesheet" href="guide.css">
+</head>
+<body>
+<main>
+<nav><a href="/">Exporter</a> · <a href="hyperliquid-koinly.html">Koinly guide</a> · <a href="hyperliquid-funding-tax.html"><b>Funding and taxes</b></a> · <a href="polymarket-taxes.html">Polymarket taxes</a> · <a href="hyperliquid-tax-tools.html">Awaken, CoinTracker, CoinLedger</a></nav>
+<h1>Hyperliquid funding payments and taxes</h1>
+<p class="muted">Updated October 2026.</p>
+
+<h2>What funding is</h2>
+<p>A perpetual contract has no expiry, so the exchange keeps its price near the spot price with funding: every hour, longs pay shorts or shorts pay longs a small amount proportional to position size and the funding rate. On Hyperliquid funding settles <b>hourly</b>, and the premium is sampled several times inside each hour. A position held for a year is 8,760 settlements. Each one is a real USDC movement in your account.</p>
+
+<h2>Why it matters for tax</h2>
+<p>Funding is money received or paid, separate from the profit or loss when you close the position. If you only report closed PnL, you under- or over-report by the net funding. For an active account the net funding can be larger than the trading result itself. Three practical problems:</p>
+<ul>
+<li><b>Volume.</b> Thousands of rows per position. Tax tools slow down and accountants charge by the hour.</li>
+<li><b>Sign.</b> Received funding and paid funding are both "funding" in the API; the sign of the USDC delta tells them apart.</li>
+<li><b>Classification.</b> Some jurisdictions fold funding into derivative PnL; some treat received funding like interest income and paid funding like a cost.</li>
+</ul>
+
+<h2>The two ways to report it</h2>
+<table>
+<tr><th>Approach</th><th>How the rows look</th><th>When it is used</th></tr>
+<tr><td>Part of trading PnL</td><td>Net funding per day as a <i>realized gain</i> (positive) or realized loss (negative)</td><td>Countries that treat perps as derivatives and tax the overall result</td></tr>
+<tr><td>Income and cost</td><td>Received funding as <i>income</i>, paid funding as <i>cost</i></td><td>Where interest-like inflows are taxed separately from capital results</td></tr>
+</table>
+<p>Both are supported in the <a href="/">exporter</a> with one switch. Daily aggregation is the default: one row per UTC day per asset with the count of hourly payments in the description, so an auditor can trace it. Hourly rows are available if your accountant insists.</p>
+
+<h2>Getting the exact numbers</h2>
+<p>Hyperliquid's public API returns every funding settlement for a wallet with timestamp, coin, rate, position size and USDC delta. The exporter pages through that history for the tax year, sums per day, and prints a per-asset total in <code>summary.txt</code>:</p>
+<pre>  asset        closes   realized PnL        fees      funding          net
+  ETH               1         100.00        2.13        -0.15        97.72
+  BTC               1        -100.00        1.81         0.30      -101.51</pre>
+<p>"Net" is realized PnL minus fees plus funding, the number most accountants start from.</p>
+
+<h2>Checking yourself</h2>
+<p>Open Hyperliquid's portfolio page for the wallet and compare the funding total for the period with the exporter's funding column. Small differences come from UTC day boundaries; a large difference usually means a second wallet or sub-account is involved.</p>
+
+<p class="cta"><a class="btn" href="/">Export your funding history</a></p>
+<p class="muted">Not tax advice. Treatment of funding differs by country.</p>
+</main>
+</body>
+</html>

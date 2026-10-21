@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Polymarket taxes: how to export your trades (no official export exists)</title>
+<meta name="description" content="Polymarket gives no trade history export and no tax form. How to pull every buy and sell of outcome shares for any wallet, what counts as a disposal, and how redemptions fit in.">
+<link rel="canonical" href="https://hl-tax-export.pages.dev/polymarket-taxes.html">
+<link rel="stylesheet" href="guide.css">
+</head>
+<body>
+<main>
+<nav><a href="/">Exporter</a> · <a href="hyperliquid-koinly.html">Koinly guide</a> · <a href="hyperliquid-funding-tax.html">Funding and taxes</a> · <a href="polymarket-taxes.html"><b>Polymarket taxes</b></a> · <a href="hyperliquid-tax-tools.html">Awaken, CoinTracker, CoinLedger</a></nav>
+<h1>Polymarket taxes: exporting your trades</h1>
+<p class="muted">Updated October 2026.</p>
+
+<h2>The problem</h2>
+<p>Polymarket shows your positions and activity in the app, but there is no CSV export and no annual statement. Every trade is a swap on Polygon between USDC and an outcome token (for example "Will X happen? / Yes"), and every redemption of a winning share is a swap back to USDC. For tax purposes each of those is a disposal of a crypto asset in most countries, and a tax tool that imports your Polygon wallet sees hundreds of unnamed ERC-1155 token movements.</p>
+
+<h2>What the exporter does</h2>
+<p>Enter your Polymarket <b>proxy wallet</b> (the address shown on your profile, not the wallet you log in with) in the <a href="/">exporter</a>. It reads the public data API and writes every trade as a swap:</p>
+<table>
+<tr><th>Trade</th><th>Koinly row</th></tr>
+<tr><td>Buy 100 Yes shares at 0.40</td><td>Sent 40 USDC, received 100 <code>PM:Will-X-happen/Yes</code></td></tr>
+<tr><td>Sell 100 Yes shares at 0.90</td><td>Sent 100 <code>PM:Will-X-happen/Yes</code>, received 90 USDC</td></tr>
+</table>
+<p>The outcome token keeps the market title so you and your accountant can read the ledger. Koinly treats each <code>PM:</code> symbol as a custom asset and computes the gain on the sell.</p>
+
+<h2>Redemptions and deposits</h2>
+<p>When a market resolves, winning shares are redeemed on-chain for 1 USDC each. That happens on Polygon, outside the trades API. Import your Polygon wallet alongside the Polymarket file: the redemption appears there as outgoing shares and incoming USDC, which closes the position. Deposits from an exchange and withdrawals also live on the Polygon wallet.</p>
+
+<h2>Finding your proxy wallet</h2>
+<ol>
+<li>Open your Polymarket profile.</li>
+<li>Copy the 0x address shown under your name. That is the proxy wallet that holds positions.</li>
+<li>Paste it into the exporter's Polymarket field. The Hyperliquid field can stay empty.</li>
+</ol>
+
+<h2>Fees</h2>
+<p>Most Polymarket markets charge no trading fee as of 2026. Where a market has fees, they reduce the USDC received and show up in the price, so no separate fee row is needed.</p>
+
+<h2>US users</h2>
+<p>Polymarket's regulated US launch in 2026 did not add a tax export at the time of writing. Trades remain property disposals; keep the per-trade ledger regardless of whether a form arrives later.</p>
+
+<p class="cta"><a class="btn" href="/">Export Polymarket trades</a></p>
+<p class="muted">Not tax advice. Prediction-market treatment differs by country.</p>
+</main>
+</body>
+</html>

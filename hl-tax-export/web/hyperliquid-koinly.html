@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>How to import Hyperliquid into Koinly (2026 guide)</title>
+<meta name="description" content="Step-by-step: get your Hyperliquid perp trades, funding and deposits into Koinly without unmatched transactions. Why the native sync misreports perps, and how a universal CSV fixes it.">
+<link rel="canonical" href="https://hl-tax-export.pages.dev/hyperliquid-koinly.html">
+<link rel="stylesheet" href="guide.css">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"HowTo","name":"Import Hyperliquid into Koinly","step":[
+{"@type":"HowToStep","name":"Build the CSV","text":"Open the exporter, paste your Hyperliquid wallet address, pick the tax year and download the Koinly CSV."},
+{"@type":"HowToStep","name":"Create a wallet in Koinly","text":"Koinly → Wallets → Add wallet → search Hyperliquid or create a custom wallet → Import from file."},
+{"@type":"HowToStep","name":"Upload and check","text":"Upload the CSV, then compare Koinly's realized gains for the wallet to the summary.txt totals."}]}
+</script>
+</head>
+<body>
+<main>
+<nav><a href="/">Exporter</a> · <a href="hyperliquid-koinly.html"><b>Koinly guide</b></a> · <a href="hyperliquid-funding-tax.html">Funding and taxes</a> · <a href="polymarket-taxes.html">Polymarket taxes</a> · <a href="hyperliquid-tax-tools.html">Awaken, CoinTracker, CoinLedger</a></nav>
+<h1>How to import Hyperliquid into Koinly</h1>
+<p class="muted">Updated October 2026. Applies to perps, spot and funding on Hyperliquid mainnet.</p>
+
+<h2>Why the native sync is not enough</h2>
+<p>Koinly can read a Hyperliquid address directly, and for simple spot activity that works. Perps are where it breaks. Koinly's own forum has threads about <a href="https://discuss.koinly.io/t/missing-hyperliquid-purchase-history-on-a-few-significant-txns/27926">missing purchase history on significant transactions</a>, staked HYPE not appearing, and perp closes modelled as disposals of tokens you never held. Three things cause this:</p>
+<ul>
+<li><b>A perp close is not a sale of an asset.</b> You never owned ETH; you owned a contract. The taxable number is the realized PnL on the close, not "sold 1 ETH at 3,100".</li>
+<li><b>Funding settles every hour.</b> One open position produces up to 8,760 tiny USDC movements a year. Imported one by one they clutter the ledger and often get matched to the wrong thing.</li>
+<li><b>Perp ↔ spot and vault moves are internal.</b> Moving USDC between your own perp and spot balances is not a transfer in or out of the exchange, but a raw import treats it as one.</li>
+</ul>
+
+<h2>Step 1: build a Koinly-ready CSV</h2>
+<p>Open the <a href="/">exporter</a>, paste your wallet address, choose the tax year and click <i>Build export</i>. The page calls Hyperliquid's public API from your browser and produces three files. The one you need here is <code>…-koinly.csv</code>. It uses Koinly's universal format with these conventions:</p>
+<table>
+<tr><th>Event</th><th>Koinly row</th></tr>
+<tr><td>Perp close with profit</td><td>Received USDC, label <i>realized gain</i></td></tr>
+<tr><td>Perp close with loss</td><td>Sent USDC, label <i>realized gain</i>. Koinly books a sent realized-gain row as a loss.</td></tr>
+<tr><td>Trading fee</td><td>Sent USDC, label <i>cost</i></td></tr>
+<tr><td>Funding</td><td>Net per UTC day per asset, label <i>realized gain</i> (or <i>income</i> / <i>cost</i>, your choice)</td></tr>
+<tr><td>Deposit / withdrawal</td><td>Plain transfer row, no label. Koinly matches it to your Arbitrum wallet.</td></tr>
+<tr><td>Spot trade</td><td>USDC ↔ token swap</td></tr>
+<tr><td>Perp ↔ spot, vaults, sub-accounts</td><td>Not in the file. They are internal.</td></tr>
+</table>
+
+<h2>Step 2: create the wallet in Koinly</h2>
+<p>In Koinly go to <b>Wallets → Add wallet</b>, search for Hyperliquid and pick <b>Import from file</b> instead of the API/address sync. If you already have a synced Hyperliquid wallet with wrong numbers, create a second wallet named "Hyperliquid (CSV)" and later delete the synced one, so you can compare both before deciding.</p>
+
+<h2>Step 3: upload and check the totals</h2>
+<p>Upload the CSV. Then open the wallet's transactions, filter by label <i>realized gain</i>, and compare the sum to the <b>TOTAL realized PnL</b> line in <code>summary.txt</code>. They should match to the cent. If funding looks doubled, you probably also have the synced wallet active; remove it.</p>
+
+<h2>Matching deposits and withdrawals</h2>
+<p>Hyperliquid deposits arrive from Arbitrum (USDC bridge). Koinly matches the "Received 5,000 USDC" row in the Hyperliquid wallet with the "Sent 5,000 USDC" in your Arbitrum wallet automatically when the timestamps are within a few hours. If it shows them as separate deposit and withdrawal, select both and use <i>Merge</i>.</p>
+
+<h2>Common questions</h2>
+<h3>Should funding be "realized gain" or "income"?</h3>
+<p>Both approaches exist. Treating net funding as part of trading PnL (<i>realized gain</i>) is the most common with accountants who treat perps as derivatives. Treating received funding as <i>income</i> and paid funding as <i>cost</i> is used where interest-like flows are taxed separately. The exporter supports both; ask your accountant which one your country expects.</p>
+<h3>What about liquidations?</h3>
+<p>A liquidation produces a fill with the realized loss in <code>closedPnl</code>, so it is already in the file as a realized gain row with a sent amount.</p>
+<h3>Spot fees charged in the token (for example HYPE)?</h3>
+<p>They are valued at the fill price and reported in USDC, which is what Koinly needs for the fee column.</p>
+<h3>Does it cover sub-accounts?</h3>
+<p>Export each sub-account address separately. Transfers between them are internal and are excluded.</p>
+
+<p class="cta"><a class="btn" href="/">Build your Koinly CSV</a></p>
+<p class="muted">This guide is not tax advice. Rules for derivatives differ by country.</p>
+</main>
+</body>
+</html>
