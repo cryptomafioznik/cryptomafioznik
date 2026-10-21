@@ -1,0 +1,30 @@
+name = "crypto-checkout"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Watcher runs every minute. Each run scans new blocks/transactions on all chains.
+[triggers]
+crons = ["* * * * *"]
+
+# Create with: wrangler d1 create checkout  -> paste database_id below, then: npm run db:init
+[[d1_databases]]
+binding = "DB"
+database_name = "checkout"
+database_id = "REPLACE_WITH_D1_ID"
+
+[vars]
+# Public base URL of the deployed worker or custom domain, used in emails and links.
+PUBLIC_URL = "https://pay.example.com"
+# From-address for Resend. The domain must be verified in Resend.
+EMAIL_FROM = "Checkout <pay@example.com>"
+# Optional: toncenter API key raises the rate limit from 1 rps. Get one from @tonapibot in Telegram.
+TONCENTER_API_KEY = ""
+# Optional: a dedicated Base RPC (Alchemy/QuickNode free tier) is more reliable than the public one.
+BASE_RPC_URL = "https://mainnet.base.org"
+SOLANA_RPC_URL = "https://api.mainnet-beta.solana.com"
+
+# Secrets (set with `wrangler secret put NAME`, never commit values):
+#   LICENSE_SECRET  - random 32+ bytes, HMAC key for license signing
+#   RESEND_API_KEY  - from resend.com
+#   ADMIN_TOKEN     - random string for /admin
