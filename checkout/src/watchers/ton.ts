@@ -69,10 +69,11 @@ export async function scanTon(
   if (!res.ok) throw new Error(`toncenter http ${res.status}: ${(await res.text()).slice(0, 200)}`);
   const json = (await res.json()) as { jetton_transfers: JettonTransfer[] };
   const list = json.jetton_transfers ?? [];
-  if (list.length === 0) return { transfers: [], cursor };
+  // Cursor states: null = never ran; "0" = ran with no history, process everything that appears; else = newest lt processed.
+  if (list.length === 0) return { transfers: [], cursor: cursor ?? "0" };
 
   const newestLt = list.reduce((m, t) => (BigInt(t.transaction_lt) > BigInt(m) ? t.transaction_lt : m), "0");
-  if (cursor === null) return { transfers: [], cursor: newestLt }; // first run: set cursor only
+  if (cursor === null) return { transfers: [], cursor: newestLt }; // first run with existing history: skip the past
 
   const fresh = list.filter((t) => BigInt(t.transaction_lt) > BigInt(cursor)).reverse(); // oldest first
   const transfers: IncomingTransfer[] = [];

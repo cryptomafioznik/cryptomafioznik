@@ -5,6 +5,7 @@ import type { IncomingTransfer } from "../db.ts";
 
 const PAGE = 50;
 const MAX_PAGES = 4;
+export const GENESIS = "genesis";
 
 async function rpc<T>(url: string, method: string, params: unknown[]): Promise<T> {
   const res = await fetch(url, {
@@ -42,8 +43,11 @@ async function findTokenAccount(url: string): Promise<string | null> {
 
 export async function scanSolana(rpcUrl: string, cursor: string | null): Promise<{ transfers: IncomingTransfer[]; cursor: string | null }> {
   const cfg = CHAINS.solana;
+  // Cursor states: null = never ran; "genesis" = ran, nothing existed yet, so process everything that appears;
+  // otherwise = newest processed signature.
   const ata = await findTokenAccount(rpcUrl);
-  if (!ata) return { transfers: [], cursor }; // no USDC account yet: nobody has paid, nothing to scan
+  if (!ata) return { transfers: [], cursor: cursor ?? GENESIS }; // no USDC account yet: the first payment will create it
+  const until = cursor && cursor !== GENESIS ? cursor : undefined;
 
   // Collect signatures newer than the cursor, oldest first.
   const sigs: string[] = [];
@@ -51,15 +55,15 @@ export async function scanSolana(rpcUrl: string, cursor: string | null): Promise
   for (let page = 0; page < MAX_PAGES; page++) {
     const batch = await rpc<Array<{ signature: string; err: unknown }>>(rpcUrl, "getSignaturesForAddress", [
       ata,
-      { limit: PAGE, commitment: "finalized", ...(before ? { before } : {}), ...(cursor ? { until: cursor } : {}) },
+      { limit: PAGE, commitment: "finalized", ...(before ? { before } : {}), ...(until ? { until } : {}) },
     ]);
     for (const s of batch) if (!s.err) sigs.push(s.signature);
     if (batch.length < PAGE) break;
     before = batch[batch.length - 1].signature;
   }
   if (cursor === null) {
-    // First run: remember the newest signature, process nothing.
-    return { transfers: [], cursor: sigs[0] ?? null };
+    // First run. Existing history belongs to the past: skip it. No history: process whatever comes next.
+    return { transfers: [], cursor: sigs[0] ?? GENESIS };
   }
   sigs.reverse();
 

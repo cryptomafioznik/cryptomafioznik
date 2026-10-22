@@ -23,7 +23,7 @@ export const CHAINS: Record<ChainId, ChainConfig> = {
     receiver: "0xc8569245f529d02491482378e05AFe792a14A83B",
     // Native USDC on Base (Circle). Verify at https://www.circle.com/multi-chain-usdc before deploy.
     tokenAddress: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-    confirmations: 3,
+    confirmations: 10, // ~20 s on Base; deep enough that a reorg cannot un-pay a settled invoice
     explorerTx: (h) => `https://basescan.org/tx/${h}`,
   },
   solana: {
