@@ -34,6 +34,10 @@ Load unpacked for local testing: `chrome://extensions` → Developer mode → Lo
 2. Upload `dist/ai-chat-layer.zip`, fill the listing (see `STORE_LISTING.md`), set category Productivity, submit for review. First review takes 1–3 days.
 3. After approval, add the product `chrome-ai-layer-pro` to `checkout/src/config.ts` with `delivery: { kind: "license", days: null }` and set the checkout URL at packaging time.
 
+## Firefox
+
+`npm run pack` also writes `dist/ai-chat-layer-firefox.zip` with a Gecko manifest. Firefox supports the `chrome.*` namespace and MV3 content scripts used here. Submit at addons.mozilla.org (free developer account, no fee; review usually within a day). The listing text in `STORE_LISTING.md` applies unchanged.
+
 ## Known limits
 
 - Site DOMs change without notice. When export shows "No messages found", update the selectors in `src/adapters.js`.
